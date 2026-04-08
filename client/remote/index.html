@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>RemoteLink</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Syne',sans-serif;background:#0a0a0f;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.wrap{display:flex;flex-direction:column;align-items:center;gap:1.2rem}
+.btn-row{display:flex;gap:1.5rem}
+.btn{padding:1.1rem 2.8rem;border-radius:12px;border:none;font-family:'Syne',sans-serif;font-size:1.05rem;font-weight:700;cursor:pointer;transition:all .2s}
+.deny{background:#ff4466;color:#fff}.deny:hover{filter:brightness(1.15);transform:translateY(-2px)}
+.allow{background:#00ff88;color:#000}.allow:hover{filter:brightness(1.1);transform:translateY(-2px)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
+.msg{font-family:monospace;font-size:.82rem;color:#555570;text-align:center;max-width:280px;line-height:1.5}
+.err{color:#ff4466}
+
+/* Camera preview shown to user on mobile after allow */
+#camWrap{display:none;flex-direction:column;align-items:center;gap:.8rem;width:100vw;height:100vh;background:#000;position:fixed;inset:0;justify-content:center}
+#camWrap.show{display:flex}
+#localCam{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.cam-label{position:fixed;top:1rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.6);color:#00ff88;font-family:monospace;font-size:.75rem;padding:.3rem .8rem;border-radius:100px;z-index:10}
+.cam-stop{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%);background:#ff4466;color:#fff;border:none;padding:.7rem 1.8rem;border-radius:10px;font-family:'Syne',sans-serif;font-weight:700;font-size:.9rem;cursor:pointer;z-index:10}
+</style>
+</head>
+<body>
+
+<div class="wrap" id="ui">
+  <div class="btn-row">
+    <button class="btn deny" id="denyBtn" onclick="dodeny()">❌ DENY</button>
+    <button class="btn allow" id="allowBtn" onclick="doallow()">✅ ALLOW</button>
+  </div>
+  <div class="msg" id="msg"></div>
+</div>
+
+<!-- Shown on mobile after camera starts -->
+<div id="camWrap">
+  <div class="cam-label">📡 Sharing your camera</div>
+  <video id="localCam" autoplay playsinline muted></video>
+  <button class="cam-stop" onclick="stopSession()">Stop Sharing</button>
+</div>
+
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+<script>
+const socket = io();
+let pc = null;
+const sessionId = location.pathname.split('/').pop();
+
+// Detect if mobile device
+const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
+const isAndroid = /Android/i.test(navigator.userAgent);
+
+const ICE = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:relay.metered.ca:80', username: 'e8dd65fc0fdea4f74b9d', credential: 'uPqRwJJq+0QhVHTm' },
+    { urls: 'turn:relay.metered.ca:443', username: 'e8dd65fc0fdea4f74b9d', credential: 'uPqRwJJq+0QhVHTm' },
+    { urls: 'turn:relay.metered.ca:443?transport=tcp', username: 'e8dd65fc0fdea4f74b9d', credential: 'uPqRwJJq+0QhVHTm' }
+  ]
+};
+
+function setMsg(t, err) {
+  const el = document.getElementById('msg');
+  el.textContent = t;
+  el.className = 'msg' + (err ? ' err' : '');
+}
+
+function disableBtns() {
+  document.getElementById('allowBtn').disabled = true;
+  document.getElementById('denyBtn').disabled = true;
+}
+
+socket.emit('join-session', { sessionId });
+socket.on('error-msg', (text) => {
+  document.getElementById('ui').innerHTML = `<div class="msg err">${text}</div>`;
+});
+
+function doallow() {
+  disableBtns();
+  setMsg('Connecting...');
+  socket.emit('remote-allow', { sessionId });
+}
+
+function dodeny() {
+  disableBtns();
+  socket.emit('remote-deny', { sessionId });
+  document.getElementById('ui').innerHTML = '<div class="msg">Access denied.</div>';
+}
+
+function stopSession() {
+  socket.emit('end-session', { sessionId });
+  location.reload();
+}
+
+socket.on('start-sharing', async () => {
+  setMsg('Starting...');
+  try {
+    let stream;
+
+    if (isMobile) {
+      // ── MOBILE: use camera (screen share not supported on Android Chrome) ──
+      setMsg('Requesting camera access...');
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment', // back camera
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: true
+      });
+
+      // Show local camera preview to the user
+      const localVid = document.getElementById('localCam');
+      localVid.srcObject = stream;
+      document.getElementById('ui').style.display = 'none';
+      document.getElementById('camWrap').classList.add('show');
+
+    } else {
+      // ── DESKTOP: use screen share ──
+      setMsg('Select screen to share...');
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: 'always', frameRate: { ideal: 30 } },
+        audio: false
+      });
+      // Hide UI on desktop after share starts
+      document.getElementById('ui').style.display = 'none';
+    }
+
+    // Set up WebRTC and send stream to host
+    pc = new RTCPeerConnection(ICE);
+    stream.getTracks().forEach(track => {
+      pc.addTrack(track, stream);
+      track.onended = () => stopSession();
+    });
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) socket.emit('ice-candidate', { sessionId, candidate: e.candidate, from: 'remote' });
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE:', pc.iceConnectionState);
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit('offer', { sessionId, offer });
+
+  } catch(err) {
+    console.error(err);
+    if (err.name === 'NotAllowedError') {
+      setMsg('Permission denied. Please allow camera/screen access.', true);
+    } else {
+      setMsg('Error: ' + err.message, true);
+    }
+    // Re-enable buttons so they can try again
+    document.getElementById('allowBtn').disabled = false;
+    document.getElementById('denyBtn').disabled = false;
+  }
+});
+
+socket.on('answer', async ({ answer }) => {
+  if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+});
+
+socket.on('ice-candidate', async ({ candidate }) => {
+  if (pc && candidate) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
+  }
+});
+
+socket.on('session-ended', () => {
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:monospace;color:#555570;background:#0a0a0f">Session ended.</div>';
+});
+</script>
+</body>
+</html>
