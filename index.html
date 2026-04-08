@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RemoteLink – Host</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --border: #1e1e2e;
+      --accent: #00ff88;
+      --accent2: #0099ff;
+      --text: #e8e8f0;
+      --muted: #555570;
+      --danger: #ff4466;
+    }
+
+    body {
+      font-family: 'Syne', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at 20% 50%, rgba(0,255,136,0.04) 0%, transparent 60%),
+                  radial-gradient(ellipse at 80% 20%, rgba(0,153,255,0.04) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    .logo {
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 2.5rem;
+      color: var(--text);
+    }
+    .logo span { color: var(--accent); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 480px;
+      position: relative;
+    }
+
+    .card h2 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      margin-bottom: 0.4rem;
+    }
+
+    .card p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 1rem;
+      border-radius: 10px;
+      border: none;
+      font-family: 'Syne', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #000;
+    }
+    .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+    }
+    .btn-danger:hover { filter: brightness(1.1); }
+
+    .session-box {
+      display: none;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .session-box.active { display: flex; }
+
+    .link-display {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--accent);
+      word-break: break-all;
+      position: relative;
+    }
+
+    .copy-btn {
+      margin-top: 0.5rem;
+      width: 100%;
+      padding: 0.7rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.9rem;
+      border-radius: 100px;
+      font-size: 0.8rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+    }
+    .status-waiting { background: rgba(255,200,0,0.1); color: #ffcc00; border: 1px solid rgba(255,200,0,0.2); }
+    .status-connected { background: rgba(0,255,136,0.1); color: var(--accent); border: 1px solid rgba(0,255,136,0.2); }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1.5s infinite; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* Permission request popup */
+    .popup-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .popup-overlay.show { display: flex; }
+
+    .popup {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      width: 340px;
+      text-align: center;
+    }
+    .popup h3 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+    .popup p { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; font-family: 'JetBrains Mono', monospace; }
+    .popup-btns { display: flex; gap: 1rem; }
+    .popup-btns .btn { flex: 1; padding: 0.8rem; }
+
+    /* Remote screen viewer */
+    #remoteView {
+      display: none;
+      flex-direction: column;
+      gap: 1rem;
+      width: 100%;
+      max-width: 1100px;
+      padding: 1rem;
+    }
+    #remoteView.active { display: flex; }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.8rem 1.2rem;
+    }
+
+    .toolbar-left { display: flex; align-items: center; gap: 1rem; }
+
+    #screenVideo {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #000;
+      cursor: crosshair;
+      display: block;
+    }
+
+    .info-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<!-- SETUP PANEL -->
+<div id="setupPanel">
+  <div class="logo">Remote<span>Link</span></div>
+  <div class="card">
+    <h2>Start Session</h2>
+    <p>Generate a link and share it with the user you want to access</p>
+
+    <button class="btn btn-primary" id="generateBtn" onclick="createSession()">
+      Generate Access Link
+    </button>
+
+    <div class="session-box" id="sessionBox">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:1.2rem;">
+        <span style="font-size:0.85rem; color:var(--muted); font-family:'JetBrains Mono',monospace;">Status</span>
+        <span class="status-badge status-waiting" id="statusBadge">
+          <span class="status-dot"></span>
+          Waiting for user...
+        </span>
+      </div>
+
+      <div>
+        <div style="font-size:0.8rem; color:var(--muted); font-family:'JetBrains Mono',monospace; margin-bottom:0.4rem;">Share this link with User B:</div>
+        <div class="link-display" id="sessionLink">—</div>
+        <button class="copy-btn" onclick="copyLink()">📋 Copy Link</button>
+      </div>
+
+      <button class="btn btn-danger" onclick="endSession()" style="margin-top:0.5rem;">End Session</button>
+    </div>
+  </div>
+</div>
+
+<!-- REMOTE SCREEN VIEW -->
+<div id="remoteView">
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <div class="logo" style="margin:0; font-size:1.1rem;">Remote<span style="color:var(--accent)">Link</span></div>
+      <span class="status-badge status-connected">
+        <span class="status-dot"></span>
+        Connected
+      </span>
+    </div>
+    <button class="btn btn-danger" style="width:auto; padding:0.5rem 1.2rem; font-size:0.9rem;" onclick="endSession()">
+      Disconnect
+    </button>
+  </div>
+
+  <video id="screenVideo" autoplay playsinline></video>
+  <div class="info-text">You are in full control of the remote device. Move your mouse over the screen to interact.</div>
+</div>
+
+<!-- PERMISSION POPUP (shown to host when remote requests) -->
+<div class="popup-overlay" id="permissionPopup">
+  <div class="popup">
+    <h3>⚠️ Access Request</h3>
+    <p>Someone wants to connect to your session. Do you allow remote access?</p>
+    <div class="popup-btns">
+      <button class="btn btn-danger" onclick="denyAccess()">❌ DENY</button>
+      <button class="btn btn-primary" onclick="allowAccess()">✅ ALLOW</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+<script>
+  const socket = io();
+  let sessionId = null;
+  let peerConnection = null;
+  let dataChannel = null;
+
+  const iceConfig = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  };
+
+  function createSession() {
+    socket.emit('create-session');
+    document.getElementById('generateBtn').disabled = true;
+    document.getElementById('generateBtn').textContent = 'Generating...';
+  }
+
+  socket.on('session-created', ({ sessionId: id }) => {
+    sessionId = id;
+    const link = `${window.location.origin}/remote/${id}`;
+    document.getElementById('sessionLink').textContent = link;
+    document.getElementById('sessionBox').classList.add('active');
+    document.getElementById('generateBtn').style.display = 'none';
+  });
+
+  function copyLink() {
+    const link = document.getElementById('sessionLink').textContent;
+    navigator.clipboard.writeText(link).then(() => {
+      const btn = document.querySelector('.copy-btn');
+      btn.textContent = '✅ Copied!';
+      setTimeout(() => btn.textContent = '📋 Copy Link', 2000);
+    });
+  }
+
+  // Remote user requests access - show popup to host
+  socket.on('access-requested', ({ sessionId: sid }) => {
+    document.getElementById('permissionPopup').classList.add('show');
+  });
+
+  function allowAccess() {
+    document.getElementById('permissionPopup').classList.remove('show');
+    socket.emit('allow-access', { sessionId });
+    document.getElementById('statusBadge').className = 'status-badge status-connected';
+    document.getElementById('statusBadge').innerHTML = '<span class="status-dot"></span> Connected';
+    startWebRTC();
+  }
+
+  function denyAccess() {
+    document.getElementById('permissionPopup').classList.remove('show');
+    socket.emit('deny-access', { sessionId });
+  }
+
+  async function startWebRTC() {
+    peerConnection = new RTCPeerConnection(iceConfig);
+
+    // Data channel for remote control
+    dataChannel = peerConnection.createDataChannel('control');
+
+    dataChannel.onmessage = (e) => {
+      const event = JSON.parse(e.data);
+      handleRemoteControl(event);
+    };
+
+    // Get screen stream
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: 'always' },
+        audio: false
+      });
+
+      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+
+      // Show local preview (optional)
+      // document.getElementById('screenVideo').srcObject = stream;
+
+      peerConnection.onicecandidate = (e) => {
+        if (e.candidate) {
+          socket.emit('ice-candidate', { sessionId, candidate: e.candidate, target: 'remote' });
+        }
+      };
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      socket.emit('offer', { sessionId, offer });
+
+      // Switch UI to remote view
+      document.getElementById('setupPanel').style.display = 'none';
+      document.getElementById('remoteView').classList.add('active');
+
+    } catch (err) {
+      console.error('Screen share error:', err);
+      alert('Screen sharing failed. Please allow screen share permission.');
+    }
+  }
+
+  socket.on('answer', async ({ answer }) => {
+    if (peerConnection) {
+      await peerConnection.setRemoteDescription(answer);
+    }
+  });
+
+  socket.on('ice-candidate', async ({ candidate }) => {
+    if (peerConnection && candidate) {
+      await peerConnection.addIceCandidate(candidate);
+    }
+  });
+
+  // Handle remote mouse/keyboard events
+  function handleRemoteControl(event) {
+    // In browser environment, we receive these events
+    // The actual OS control requires the desktop agent
+    console.log('Remote control event:', event);
+  }
+
+  function endSession() {
+    if (sessionId) socket.emit('end-session', { sessionId });
+    location.reload();
+  }
+
+  socket.on('session-ended', () => {
+    alert('Session ended.');
+    location.reload();
+  });
+</script>
+</body>
+</html>
